@@ -745,44 +745,77 @@ const FormFieldComponent = ({ field, form, errors, onChange, onFocus, theme }: a
 );
 
 // Results Component
-const ResultsSection = ({ result, theme }: any) => (
-  <motion.div
-    initial={{ opacity: 0, y: 50, scale: 0.9 }}
-    animate={{ opacity: 1, y: 0, scale: 1 }}
-    exit={{ opacity: 0, y: -50, scale: 0.9 }}
-    transition={{ duration: 0.5, type: "spring" }}
-    className={`mt-12 rounded-3xl backdrop-blur-lg border-2 p-8 shadow-2xl ${
-      theme === "dark" 
-        ? "bg-gray-800/40 border-gray-700" 
-        : "bg-white/80 border-gray-200"
-    }`}
-  >
-    <div className="text-center max-w-2xl mx-auto">
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-        className={`inline-flex items-center gap-3 p-4 rounded-2xl mb-6 ${
-          result.prediction === 1 
-            ? "bg-red-500/20 border border-red-500/30" 
-            : "bg-green-500/20 border border-green-500/30"
-        }`}
-      >
-        {result.prediction === 1 ? (
-          <AlertTriangle size={32} className="text-red-500" />
-        ) : (
-          <CheckCircle size={32} className="text-green-500" />
-        )}
-        <h3 className={`text-3xl font-bold ${
-          theme === "dark" ? "text-white" : "text-gray-800"
-        }`}>
-          {result.prediction === 1
-            ? "🚨 Heart Disease Risk Detected"
-            : "✅ Low Heart Disease Risk"}
-        </h3>
-      </motion.div>
+const ResultsSection = ({ result, theme }: any) => {
+  // Handle both old format (prediction: 1) and new format (prediction: "Positive")
+  const isPositive = result.prediction === "Positive" || result.prediction === 1;
+  const probability = result.probability || 0;
+  const confidence = result.confidence || probability;
+  const riskLevel = result.risk_level || (isPositive ? "High" : "Low");
 
-      {result.probability !== undefined && (
+  // Determine colors based on risk level
+  const getRiskColors = () => {
+    if (riskLevel === "High" || isPositive) {
+      return {
+        bg: "bg-red-500/20 border-red-500/30",
+        text: "text-red-300",
+        icon: "text-red-500",
+        gradient: "from-red-500 to-orange-500",
+        badge: "bg-red-500"
+      };
+    } else if (riskLevel === "Medium") {
+      return {
+        bg: "bg-yellow-500/20 border-yellow-500/30",
+        text: "text-yellow-300",
+        icon: "text-yellow-500",
+        gradient: "from-yellow-500 to-orange-500",
+        badge: "bg-yellow-500"
+      };
+    } else {
+      return {
+        bg: "bg-green-500/20 border-green-500/30",
+        text: "text-green-300",
+        icon: "text-green-500",
+        gradient: "from-green-500 to-emerald-500",
+        badge: "bg-green-500"
+      };
+    }
+  };
+
+  const colors = getRiskColors();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 50, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -50, scale: 0.9 }}
+      transition={{ duration: 0.5, type: "spring" }}
+      className={`mt-12 rounded-3xl backdrop-blur-lg border-2 p-8 shadow-2xl ${
+        theme === "dark"
+          ? "bg-gray-800/40 border-gray-700"
+          : "bg-white/80 border-gray-200"
+      }`}
+    >
+      <div className="text-center max-w-2xl mx-auto">
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className={`inline-flex items-center gap-3 p-4 rounded-2xl mb-6 border ${colors.bg}`}
+        >
+          {isPositive ? (
+            <AlertTriangle size={32} className={colors.icon} />
+          ) : (
+            <CheckCircle size={32} className={colors.icon} />
+          )}
+          <h3 className={`text-3xl font-bold ${
+            theme === "dark" ? "text-white" : "text-gray-800"
+          }`}>
+            {isPositive
+              ? "🚨 Heart Disease Risk Detected"
+              : "✅ Low Heart Disease Risk"}
+          </h3>
+        </motion.div>
+
         <div className="space-y-6">
           {/* Probability Visualization */}
           <div className="space-y-4">
@@ -791,24 +824,18 @@ const ResultsSection = ({ result, theme }: any) => (
             }`}>
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${(result.probability || 0) * 100}%` }}
+                animate={{ width: `${probability * 100}%` }}
                 transition={{ duration: 1, delay: 0.3 }}
-                className={`h-full rounded-2xl ${
-                  result.prediction === 1 
-                    ? "bg-gradient-to-r from-red-500 to-orange-500" 
-                    : "bg-gradient-to-r from-green-500 to-emerald-500"
-                }`}
+                className={`h-full rounded-2xl bg-gradient-to-r ${colors.gradient}`}
               />
             </div>
-            
+
             <div className="flex justify-between items-center">
               <span className={theme === "dark" ? "text-gray-400" : "text-gray-600"}>
                 Low Risk
               </span>
-              <span className={`text-2xl font-bold ${
-                result.prediction === 1 ? "text-red-400" : "text-green-500"
-              }`}>
-                {(result.probability! * 100).toFixed(1)}%
+              <span className={`text-2xl font-bold ${colors.text}`}>
+                {(probability * 100).toFixed(1)}%
               </span>
               <span className={theme === "dark" ? "text-gray-400" : "text-gray-600"}>
                 High Risk
@@ -816,21 +843,60 @@ const ResultsSection = ({ result, theme }: any) => (
             </div>
           </div>
 
-          {/* Risk Level Badge */}
+          {/* Risk Level & Confidence Metrics */}
+          <div className="grid grid-cols-2 gap-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, delay: 0.4 }}
+              className={`p-4 rounded-xl ${
+                theme === "dark" ? "bg-gray-700/50" : "bg-gray-100"
+              }`}
+            >
+              <div className={`text-sm mb-1 ${
+                theme === "dark" ? "text-gray-400" : "text-gray-600"
+              }`}>
+                Risk Level
+              </div>
+              <div className={`text-2xl font-bold ${colors.text}`}>
+                {riskLevel}
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, delay: 0.5 }}
+              className={`p-4 rounded-xl ${
+                theme === "dark" ? "bg-gray-700/50" : "bg-gray-100"
+              }`}
+            >
+              <div className={`text-sm mb-1 ${
+                theme === "dark" ? "text-gray-400" : "text-gray-600"
+              }`}>
+                Confidence
+              </div>
+              <div className={`text-2xl font-bold ${
+                theme === "dark" ? "text-white" : "text-gray-800"
+              }`}>
+                {(confidence * 100).toFixed(1)}%
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Action Badge */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-            className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-lg font-semibold ${
-              result.prediction === 1 
-                ? "bg-red-500/20 text-red-300 border border-red-500/30" 
-                : "bg-green-500/20 text-green-300 border border-green-500/30"
-            }`}
+            transition={{ duration: 0.5, delay: 0.6 }}
+            className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-lg font-semibold border ${colors.bg} ${colors.text}`}
           >
-            <div className={`w-4 h-4 rounded-full animate-pulse ${
-              result.prediction === 1 ? "bg-red-500" : "bg-green-500"
-            }`} />
-            {result.prediction === 1 ? "High Risk - Consult Doctor" : "Low Risk - Maintain Lifestyle"}
+            <div className={`w-4 h-4 rounded-full animate-pulse ${colors.badge}`} />
+            {riskLevel === "High"
+              ? "Urgent - Consult Doctor"
+              : riskLevel === "Medium"
+              ? "Moderate - Schedule Checkup"
+              : "Low Risk - Maintain Lifestyle"}
           </motion.div>
 
           {/* Medical Recommendation */}
@@ -848,15 +914,32 @@ const ResultsSection = ({ result, theme }: any) => (
               Medical Recommendation:
             </h4>
             <p className={theme === "dark" ? "text-gray-300" : "text-gray-700"}>
-              {result.prediction === 1
+              {riskLevel === "High"
                 ? "Based on the AI assessment with 99.7% model accuracy, we strongly recommend consulting with a cardiologist or healthcare professional for comprehensive evaluation, diagnostic tests, and personalized treatment plan. Early intervention can significantly improve outcomes."
+                : riskLevel === "Medium"
+                ? "Your assessment indicates moderate risk factors. We recommend scheduling a preventive checkup with your healthcare provider to discuss these results and develop a heart-healthy action plan. Regular monitoring is advised."
                 : "Your heart health parameters appear favorable according to our high-accuracy AI model. Continue maintaining a healthy lifestyle with balanced diet, regular exercise, and routine check-ups. Monitor your health parameters regularly."}
             </p>
           </motion.div>
+
+          {/* Disclaimer */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, delay: 0.9 }}
+            className={`text-xs p-4 rounded-lg ${
+              theme === "dark" ? "bg-gray-700/30 text-gray-400" : "bg-gray-100 text-gray-600"
+            }`}
+          >
+            <strong>Disclaimer:</strong> This is an AI-powered screening tool and should not replace professional medical advice.
+            Prediction accuracy: {(confidence * 100).toFixed(1)}%.
+            Always consult with qualified healthcare professionals for diagnosis and treatment.
+            {result.timestamp && ` • Assessment: ${new Date(result.timestamp).toLocaleString()}`}
+          </motion.div>
         </div>
-      )}
-    </div>
-  </motion.div>
-);
+      </div>
+    </motion.div>
+  );
+};
 
 export default EnhancedForm;

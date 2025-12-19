@@ -1,121 +1,7 @@
-# from fastapi import FastAPI
-# from pydantic import BaseModel
-# import pickle
-# import numpy as np
-# from fastapi.middleware.cors import CORSMiddleware
-
-# app = FastAPI()
-
-# # CORS (Next.js থেকে API call করতে)
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# # মডেল লোড
-# model = pickle.load(open("model/heart_RandomForest.pkl", "rb"))
-# scaler = pickle.load(open("model/scaler.pkl", "rb"))
-
-# # ইনপুট ডেটা ক্লাস
-# class InputData(BaseModel):
-#     age: float
-#     sex: float
-#     cp: float
-#     trestbps: float
-#     chol: float
-#     fbs: float
-#     restecg: float
-#     thalach: float
-#     exang: float
-#     oldpeak: float
-#     slope: float
-#     ca: float
-#     thal: float
-
-# @app.post("/predict")
-# def predict(data: InputData):
-#     # ইনপুট ডেটাকে numpy array এ কনভার্ট করা
-#     features = np.array([[data.age, data.sex, data.cp, data.trestbps, data.chol, 
-#                           data.fbs, data.restecg, data.thalach, data.exang, 
-#                           data.oldpeak, data.slope, data.ca, data.thal]])
-    
-#     scaled = scaler.transform(features)
-#     prediction = model.predict(scaled)
-#     result = "Heart Disease Detected" if prediction[0] == 1 else "No Heart Disease"
-#     return {"prediction": result}
-
-
-
-# from fastapi import FastAPI
-# from pydantic import BaseModel
-# import pickle
-# import numpy as np
-# import os
-# from fastapi.middleware.cors import CORSMiddleware
-
-# # FastAPI app initialization
-# app = FastAPI()
-
-# # Enable CORS (for Next.js frontend access)
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],  # You can restrict to ["http://localhost:3000"] if needed
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
-
-# # Get model directory path
-# MODEL_DIR = os.path.join(os.path.dirname(__file__), "model")
-
-# # Load model and scaler
-# with open(os.path.join(MODEL_DIR, "heart_RandomForest.pkl"), "rb") as f:
-#     model = pickle.load(f)
-
-# with open(os.path.join(MODEL_DIR, "scaler.pkl"), "rb") as f:
-#     scaler = pickle.load(f)
-
-# # Input data schema
-# class InputData(BaseModel):
-#     age: float
-#     sex: float
-#     cp: float
-#     trestbps: float
-#     chol: float
-#     fbs: float
-#     restecg: float
-#     thalach: float
-#     exang: float
-#     oldpeak: float
-#     slope: float
-#     ca: float
-#     thal: float
-
-# @app.get("/")
-# def root():
-#     return {"message": "Heart Disease Prediction API is running!"}
-
-# @app.post("/predict")
-# def predict(data: InputData):
-#     # Convert input to numpy array
-#     features = np.array([[data.age, data.sex, data.cp, data.trestbps, data.chol,
-#                           data.fbs, data.restecg, data.thalach, data.exang,
-#                           data.oldpeak, data.slope, data.ca, data.thal]])
-
-#     # Scale input
-#     scaled = scaler.transform(features)
-
-#     # Predict
-#     prediction = model.predict(scaled)
-#     result = "Heart Disease Detected ❤️" if prediction[0] == 1 else "No Heart Disease 💚"
-
-#     return {"prediction": result}
-
-
-
+"""
+HeartScan - Heart Disease Prediction API
+Production-ready FastAPI backend with model inference
+"""
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -123,99 +9,257 @@ warnings.filterwarnings("ignore")
 import json
 import sys
 import os
+import logging
+from typing import Dict, Optional
+from datetime import datetime
+
 import numpy as np
 import pickle
+from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
 
-# === Model path সেট করা ===
+# ===== Logging Configuration =====
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ===== Environment Configuration =====
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,https://heartscan.vercel.app"
+).split(",")
+
+# ===== Model Loading =====
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "model")
 
-with open(os.path.join(MODEL_DIR, "heart_RandomForest.pkl"), "rb") as f:
-    model = pickle.load(f)
+try:
+    with open(os.path.join(MODEL_DIR, "heart_RandomForest.pkl"), "rb") as f:
+        model = pickle.load(f)
+    with open(os.path.join(MODEL_DIR, "scaler.pkl"), "rb") as f:
+        scaler = pickle.load(f)
+    logger.info("✅ Model and scaler loaded successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to load model: {e}")
+    raise
 
-with open(os.path.join(MODEL_DIR, "scaler.pkl"), "rb") as f:
-    scaler = pickle.load(f)
+
+# ===== Pydantic Models for Validation =====
+class HeartDiseaseInput(BaseModel):
+    """Input schema for heart disease prediction"""
+    age: float = Field(..., ge=1, le=120, description="Age in years")
+    sex: float = Field(..., ge=0, le=1, description="Sex (0=Female, 1=Male)")
+    cp: float = Field(..., ge=0, le=3, description="Chest pain type (0-3)")
+    trestbps: float = Field(..., ge=80, le=200, description="Resting blood pressure (mm Hg)")
+    chol: float = Field(..., ge=100, le=600, description="Serum cholesterol (mg/dl)")
+    fbs: float = Field(..., ge=0, le=1, description="Fasting blood sugar > 120 mg/dl (0/1)")
+    restecg: float = Field(..., ge=0, le=2, description="Resting ECG results (0-2)")
+    thalach: float = Field(..., ge=60, le=220, description="Maximum heart rate achieved")
+    exang: float = Field(..., ge=0, le=1, description="Exercise induced angina (0/1)")
+    oldpeak: float = Field(..., ge=0, le=10, description="ST depression induced by exercise")
+    slope: float = Field(..., ge=0, le=2, description="Slope of peak exercise ST segment (0-2)")
+    ca: float = Field(..., ge=0, le=3, description="Number of major vessels (0-3)")
+    thal: float = Field(..., ge=0, le=3, description="Thalassemia (0=normal, 1=fixed, 2=reversible, 3=unknown)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "age": 58,
+                "sex": 0,
+                "cp": 0,
+                "trestbps": 100,
+                "chol": 248,
+                "fbs": 0,
+                "restecg": 0,
+                "thalach": 122,
+                "exang": 0,
+                "oldpeak": 1.0,
+                "slope": 1,
+                "ca": 0,
+                "thal": 2
+            }
+        }
 
 
-def predict_heart_disease(data):
+class PredictionResponse(BaseModel):
+    """Response schema for prediction"""
+    prediction: str = Field(..., description="Prediction result (Positive/Negative)")
+    probability: float = Field(..., ge=0, le=1, description="Probability of heart disease (0-1)")
+    confidence: float = Field(..., ge=0, le=1, description="Model confidence score")
+    risk_level: str = Field(..., description="Risk level (Low/Medium/High)")
+    timestamp: str = Field(..., description="Prediction timestamp")
+
+
+class HealthResponse(BaseModel):
+    """Health check response"""
+    status: str
+    model_loaded: bool
+    scaler_loaded: bool
+    environment: str
+    timestamp: str
+
+
+# ===== Core Prediction Function =====
+def predict_heart_disease(data: Dict) -> Dict:
     """
-    data = dictionary যেমন:
-    {
-      "age": 45,
-      "sex": 1,
-      "cp": 0,
-      "trestbps": 130,
-      "chol": 250,
-      "fbs": 0,
-      "restecg": 1,
-      "thalach": 150,
-      "exang": 0,
-      "oldpeak": 1.2,
-      "slope": 2,
-      "ca": 0,
-      "thal": 2
-    }
+    Perform heart disease prediction with probability scores
+
+    Args:
+        data: Dictionary with 13 features
+
+    Returns:
+        Dictionary with prediction, probability, and risk assessment
     """
-    input_data = np.array(list(data.values())).reshape(1, -1)
-    scaled_data = scaler.transform(input_data)
-    prediction = model.predict(scaled_data)
-    result = "Positive" if prediction[0] == 1 else "Negative"
-    return {"prediction": result}
-
-
-# === যদি এই ফাইলটা সরাসরি Next.js থেকে রান হয় ===
-if __name__ == "__main__":
     try:
-        # যদি JSON argument হিসেবে আসে (Next.js থেকে)
-        if len(sys.argv) > 1:
-            # যদি ফাইল দেওয়া হয়
-            if os.path.isfile(sys.argv[1]):
-                with open(sys.argv[1], "r") as f:
-                    data = json.load(f)
-            else:
-                # না হলে সরাসরি JSON string
-                data = json.loads(sys.argv[1])
-        else:
-            print(json.dumps({"error": "No input data received"}))
-            sys.exit(0)
+        # Convert input to numpy array (ensure correct order)
+        input_array = np.array([[
+            data.get("age", 0),
+            data.get("sex", 0),
+            data.get("cp", 0),
+            data.get("trestbps", 0),
+            data.get("chol", 0),
+            data.get("fbs", 0),
+            data.get("restecg", 0),
+            data.get("thalach", 0),
+            data.get("exang", 0),
+            data.get("oldpeak", 0),
+            data.get("slope", 0),
+            data.get("ca", 0),
+            data.get("thal", 0)
+        ]])
 
-        result = predict_heart_disease(data)
-        print(json.dumps(result))
+        # Scale features
+        scaled_data = scaler.transform(input_array)
+
+        # Get prediction and probability
+        prediction = model.predict(scaled_data)[0]
+        probabilities = model.predict_proba(scaled_data)[0]
+
+        # Calculate risk metrics
+        disease_probability = float(probabilities[1])  # Probability of class 1 (disease)
+        confidence = float(max(probabilities))
+
+        # Determine risk level
+        if disease_probability < 0.3:
+            risk_level = "Low"
+        elif disease_probability < 0.7:
+            risk_level = "Medium"
+        else:
+            risk_level = "High"
+
+        result = "Positive" if prediction == 1 else "Negative"
+
+        logger.info(f"Prediction: {result}, Probability: {disease_probability:.2f}, Risk: {risk_level}")
+
+        return {
+            "prediction": result,
+            "probability": round(disease_probability, 4),
+            "confidence": round(confidence, 4),
+            "risk_level": risk_level,
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
     except Exception as e:
-        print(json.dumps({"error": str(e)}))
+        logger.error(f"Prediction error: {e}")
+        raise
 
 
+# ===== FastAPI Application =====
+app = FastAPI(
+    title="HeartScan API",
+    description="AI-powered heart disease prediction using Random Forest",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-# === FastAPI দিয়ে API endpoint তৈরি ===
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-app = FastAPI()
-
-# --- CORS (frontend থেকে request allow করার জন্য) ---
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # তুমি চাইলে frontend এর URL দিতে পারো যেমন "http://localhost:3000"
+    allow_origins=ALLOWED_ORIGINS if ENVIRONMENT == "production" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/")
-def root():
-    return {"message": "Heart Disease Prediction API is running 🚀"}
 
-@app.post("/predict")
-def predict_api(data: dict):
+# ===== API Endpoints =====
+@app.get("/", response_model=Dict[str, str])
+async def root():
+    """Root endpoint - API status"""
+    return {
+        "message": "HeartScan API is running",
+        "version": "1.0.0",
+        "status": "healthy",
+        "docs": "/docs"
+    }
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {
+        "status": "healthy",
+        "model_loaded": model is not None,
+        "scaler_loaded": scaler is not None,
+        "environment": ENVIRONMENT,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.post("/predict", response_model=PredictionResponse)
+async def predict_endpoint(data: HeartDiseaseInput):
+    """
+    Predict heart disease risk based on patient data
+
+    - **Returns**: Prediction result with probability and risk assessment
+    """
     try:
-        result = predict_heart_disease(data)
+        # Convert Pydantic model to dict
+        input_data = data.model_dump()
+
+        # Perform prediction
+        result = predict_heart_disease(input_data)
+
         return result
+
     except Exception as e:
-        return {"error": str(e)}
+        logger.error(f"Prediction endpoint error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Prediction failed: {str(e)}"
+        )
 
 
-# দারুন 🎯 — একদম ঠিকভাবে কোডটা সাজানো হয়েছে এখন!
+# ===== CLI Interface (for subprocess compatibility) =====
+if __name__ == "__main__":
+    # Check if running as CLI (for Next.js subprocess calls)
+    if len(sys.argv) > 1:
+        try:
+            # Parse input from command line argument
+            if os.path.isfile(sys.argv[1]):
+                with open(sys.argv[1], "r") as f:
+                    data = json.load(f)
+            else:
+                data = json.loads(sys.argv[1])
 
-# তোমার main.py এখন দুইভাবে কাজ করবে 👇
-# ✅ ১️⃣ — সরাসরি কমান্ড লাইন থেকে (যেমন: python main.py input.json)
-# ✅ ২️⃣ — আবার API সার্ভার হিসেবেও (FastAPI দিয়ে)
+            # Perform prediction
+            result = predict_heart_disease(data)
+            print(json.dumps(result))
+
+        except Exception as e:
+            print(json.dumps({"error": str(e)}))
+            sys.exit(1)
+    else:
+        # Run FastAPI server
+        import uvicorn
+        port = int(os.getenv("PORT", 8000))
+        uvicorn.run(
+            "main:app",
+            host="0.0.0.0",
+            port=port,
+            reload=ENVIRONMENT == "development"
+        )
